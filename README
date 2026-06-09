@@ -10,6 +10,31 @@ The zip file contains the minimal code needed to:
 
 It does not include the datasets themselves.
 
+Datasets
+========
+
+1. Wiki-Socks dataset
+Download / repository:
+https://github.com/lraszewski/wiki-socks
+
+2. Raszewski et al. ACL 2025 sockpuppet investigations dataset
+Paper:
+https://aclanthology.org/2025.acl-long.1083/
+
+Public release source referenced by the paper:
+https://github.com/lraszewski/wiki-socks
+
+Notes
+=====
+
+- The release code expects the wiki-socks raw CSV files under:
+  data/wiki-socks-data/data/
+
+- The Raszewski evaluation code expects:
+  data/raszewski_dataset/data/
+  data/raszewski_dataset/stats.csv
+
+
 ## Folder Layout
 
 - `scripts/convert_wikisocks_data.py`: convert raw wiki-socks investigations into one activity log plus labels
