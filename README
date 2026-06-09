@@ -1,1 +1,242 @@
+# SockPuppet Release
+
+The zip file contains the minimal code needed to:
+
+1. prepare the wiki-socks dataset
+2. train AD-GNN on wiki-socks
+3. test on the Raszewski dataset with:
+   - zero-shot transfer
+   - batched task-level evaluation
+
+It does not include the datasets themselves.
+
+## Folder Layout
+
+- `scripts/convert_wikisocks_data.py`: convert raw wiki-socks investigations into one activity log plus labels
+- `scripts/build_windows.py`: build temporal windows from the activity log
+- `scripts/train_adgnn.py`: train AD-GNN on wiki-socks windows
+- `scripts/evaluate_on_raszewski_fast.py`: zero-shot transfer to Raszewski using the trained checkpoint
+- `scripts/prepare_raszewski_cache.py`: optional preprocessing for batched Raszewski evaluation
+- `scripts/evaluate_on_raszewski_batched.py`: batched Raszewski evaluation
+- `configs/default.yaml`: default windowing configuration
+
+## Requirements
+
+Install from inside `release/`:
+
+```bash
+pip install -e .
+```
+
+Main dependencies used by the released code:
+
+- `pandas`
+- `numpy`
+- `scipy`
+- `scikit-learn`
+- `pyarrow`
+- `pyyaml`
+- `torch`
+- `torch-geometric`
+- `tqdm`
+
+## Expected Data Layout
+
+The commands below assume the following dataset locations relative to `release/`:
+
+```text
+data/
+  wiki-socks-data/
+    data/
+      *.csv
+  raszewski_dataset/
+    data/
+      *.csv
+    stats.csv
+```
+
+If your data is elsewhere, replace the paths in the commands.
+
+## Dataset 1: Wiki-Socks
+
+### Step 1. Convert the raw investigations
+
+This reads the raw wiki-socks investigation CSV files and produces:
+
+- one unified activity log
+- one JSON file with positive sockpuppet groups
+
+Command:
+
+```bash
+python scripts/convert_wikisocks_data.py \
+  --data-dir data/wiki-socks-data/data \
+  --output-log data/raw/wikisocks_activity_log.csv \
+  --output-labels data/wikisocks_labels.json
+```
+
+Outputs:
+
+- `data/raw/wikisocks_activity_log.csv`
+- `data/wikisocks_labels.json`
+
+### Step 2. Build temporal windows
+
+This slices the activity log into overlapping windows used by AD-GNN training.
+
+Command:
+
+```bash
+python scripts/build_windows.py \
+  --input data/raw/wikisocks_activity_log.csv \
+  --config configs/default.yaml \
+  --output data/processed/windows
+```
+
+Outputs:
+
+- `data/processed/windows/window_*.parquet`
+- `data/processed/windows/windows_metadata.csv`
+
+### Step 3. Train AD-GNN on wiki-socks
+
+This is the actual wiki-socks AD-GNN training script used for the release.
+
+Command:
+
+```bash
+python scripts/train_adgnn.py \
+  --windows data/processed/windows \
+  --labels data/wikisocks_labels.json \
+  --output results/positive_all/adgnn
+```
+
+Important outputs:
+
+- `results/positive_all/adgnn/config.json`
+- `results/positive_all/adgnn/config.yaml`
+- `results/positive_all/adgnn/summary.json`
+- `results/positive_all/adgnn/best_model_global.pt`
+
+The file `best_model_global.pt` is the checkpoint used by the zero-shot Raszewski script.
+
+## Dataset 2: Raszewski
+
+There are two evaluation modes in this release.
+
+### Option A. Zero-Shot Transfer
+
+This tests whether the wiki-socks-trained model transfers directly to Raszewski.
+
+Run:
+
+```bash
+python scripts/evaluate_on_raszewski_fast.py \
+  --model results/positive_all/adgnn/best_model_global.pt \
+  --output results/raszewski/adgnn_eval_fast
+```
+
+Useful optional arguments:
+
+- `--device cpu`
+- `--device cuda`
+- `--sample-size 1000`
+- `--max-users 200`
+- `--sort-by-size`
+- `--coord-method sparse`
+- `--coord-method exact`
+
+Main outputs:
+
+- `results/raszewski/adgnn_eval_fast/config.yaml`
+- `results/raszewski/adgnn_eval_fast/zeroshot_results_sample_*.csv`
+- `results/raszewski/adgnn_eval_fast/summary.json`
+
+### Option B. Batched Raszewski Evaluation
+
+This script trains and evaluates on Raszewski investigations in batched multi-task mode.
+
+#### Step B1. Optional cache preparation
+
+This precomputes graph/features payloads used by the batched evaluator.
+
+Command:
+
+```bash
+python scripts/prepare_raszewski_cache.py \
+  --cache-dir results/raszewski/adgnn_eval_batched/cache
+```
+
+Optional arguments:
+
+- `--sample-size 1000`
+- `--full`
+- `--max-users 200`
+- `--sort-by-size`
+- `--coord-method sparse`
+- `--coord-method exact`
+
+This step is optional because the evaluator can build missing cache entries by itself.
+
+#### Step B2. Run the batched evaluator
+
+Command:
+
+```bash
+python scripts/evaluate_on_raszewski_batched.py \
+  --output results/raszewski/adgnn_eval_batched
+```
+
+Useful optional arguments:
+
+- `--device cpu`
+- `--device cuda`
+- `--sample-size 1000`
+- `--full`
+- `--meta-batch-size 8`
+- `--epochs 5`
+- `--neg-ratio 2.0`
+- `--group-size 3`
+- `--infer-batch-size 256`
+- `--max-users 200`
+- `--sort-by-size`
+- `--coord-method sparse`
+- `--coord-method exact`
+- `--cache-dir results/raszewski/adgnn_eval_batched/cache`
+
+Main outputs:
+
+- `results/raszewski/adgnn_eval_batched/config.yaml`
+- `results/raszewski/adgnn_eval_batched/batched_results.json`
+- `results/raszewski/adgnn_eval_batched/summary.json`
+
+## Minimal End-to-End Sequence
+
+If you want the shortest complete sequence:
+
+```bash
+pip install -e .
+
+python scripts/convert_wikisocks_data.py \
+  --data-dir data/wiki-socks-data/data \
+  --output-log data/raw/wikisocks_activity_log.csv \
+  --output-labels data/wikisocks_labels.json
+
+python scripts/build_windows.py \
+  --input data/raw/wikisocks_activity_log.csv \
+  --config configs/default.yaml \
+  --output data/processed/windows
+
+python scripts/train_adgnn.py \
+  --windows data/processed/windows \
+  --labels data/wikisocks_labels.json \
+  --output results/positive_all/adgnn
+
+python scripts/evaluate_on_raszewski_fast.py \
+  --model results/positive_all/adgnn/best_model_global.pt \
+  --output results/raszewski/adgnn_eval_fast
+
+python scripts/evaluate_on_raszewski_batched.py \
+  --output results/raszewski/adgnn_eval_batched
+
 
